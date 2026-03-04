@@ -158,11 +158,49 @@ opentype.js and harfbuzzjs give identical results — both read advance widths f
 
 None of these match browser canvas/DOM exactly — different font engines, different platform font resolution. Server-side measurement is useful for testing the algorithm but not for matching browser rendering.
 
+## Safari CSS line-breaking differences
+
+Safari's canvas and DOM agree on individual word widths (after trimming trailing spaces). But Safari's CSS engine breaks lines at different positions than our algorithm in three cases:
+
+**1. Emoji break opportunities**
+
+Safari breaks before emoji where we keep them on the current line:
+- Ours: `"Great work! 👏👏👏"` on one line
+- Safari: `"Great work! 👏👏"` then `"👏 This is..."` on next line
+
+Safari treats emoji as break opportunities — you can break before an emoji even mid-phrase. Our algorithm only breaks before word-like segments (emoji are non-word in `Intl.Segmenter`), so emoji get attached to the preceding content.
+
+**2. CJK kinsoku (line-start prohibition)**
+
+Safari prohibits CJK punctuation (，。) from starting a new line:
+- Ours: `"这是一段中文文本，"` (comma at end of line)
+- Safari: `"这是一段中文文本"` then `"，用于测试..."` — wait, that puts comma at line start?
+
+Actually Safari does the opposite: it keeps the comma with the NEXT line, pushing the preceding character to the next line too. This is the kinsoku shori rule — certain characters are prohibited from appearing at the start or end of a line. The browser rearranges break points to satisfy these constraints. Our grapheme-splitting treats every CJK character as an independent break point without kinsoku rules.
+
+**3. Bidi boundary breaks**
+
+Safari breaks differently around Arabic-Indic digits and mixed-script boundaries:
+- Ours: `"The price is $42.99 (approximately ٤٢٫٩٩"` — Arabic digits on same line
+- Safari: `"The price is $42.99 (approximately"` then `"٤٢٫٩٩ ريال..."` — breaks before Arabic digits
+
+Safari's CSS engine may treat bidi script boundaries as preferred break points. Our algorithm doesn't consider script boundaries for break decisions.
+
+**What we tried to fix Safari**
+
+- **Trailing space exclusion from line width**: tracked space width separately, only counted it when followed by non-space. No effect on Safari accuracy, hurt Chrome (99.4% → 99.0%). Reverted.
+- **Preventing punctuation merge into space segments**: stopped emoji/parens from merging with preceding space (which made them invisible to line breaking). Made Safari worse (48 → 56 mismatches). Reverted.
+
+**Conclusion**: Safari's mismatches are CSS line-breaking rule differences, not measurement errors. Fixing them requires implementing kinsoku rules, emoji-as-break-point handling, and bidi-aware break preferences — CSS spec work beyond measurement.
+
 ## Accuracy summary
 
 Browser (canvas measureText, named font):
-- 3816/3840 (99.4%) across 2 fonts × 8 sizes × 8 widths × 30 texts
-- Remaining 24 mismatches: all emoji at small font sizes
+- Chrome: 3816/3840 (99.4%) across 2 fonts × 8 sizes × 8 widths × 30 texts
+  - Remaining 24 mismatches: all emoji at small font sizes (canvas width inflation bug)
+- Safari: 3792/3840 (98.8%)
+  - Remaining 48 mismatches: emoji breaks, CJK kinsoku, bidi boundaries (CSS rule differences)
+- Firefox: untested at scale but has same emoji inflation as Chrome (worse: +5px at 15px vs Chrome's +4px, converges at 28px vs Chrome's 24px)
 
 Headless (HarfBuzz, Arial Unicode):
 - 1472/1472 (100%) word-sum vs full-line measurement
