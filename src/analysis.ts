@@ -1198,7 +1198,11 @@ function compileAnalysisChunks(segmentation: MergedSegmentation, whiteSpaceProfi
   return chunks
 }
 
-function mergeKeepAllTextSegments(segmentation: MergedSegmentation, profile: AnalysisProfile): MergedSegmentation {
+function mergeKeepAllTextSegments(
+  normalized: string,
+  segmentation: MergedSegmentation,
+  breakAfterPunctuation: boolean,
+): MergedSegmentation {
   if (segmentation.len <= 1) return segmentation
 
   const texts: string[] = []
@@ -1217,18 +1221,18 @@ function mergeKeepAllTextSegments(segmentation: MergedSegmentation, profile: Ana
   }
 
   function pushMergedText(start: number, end: number): void {
-    const textParts: string[] = []
     let wordLike = false
 
     for (let i = start; i < end; i++) {
-      textParts.push(segmentation.texts[i]!)
       wordLike = wordLike || segmentation.isWordLike[i]!
     }
 
-    texts.push(textParts.join(''))
+    const sourceStart = segmentation.starts[start]!
+    const sourceEnd = end < segmentation.len ? segmentation.starts[end]! : normalized.length
+    texts.push(normalized.slice(sourceStart, sourceEnd))
     isWordLike.push(wordLike)
     kinds.push('text')
-    starts.push(segmentation.starts[start]!)
+    starts.push(sourceStart)
   }
 
   function flushGroup(end: number): void {
@@ -1255,7 +1259,7 @@ function mergeKeepAllTextSegments(segmentation: MergedSegmentation, profile: Ana
     if (kind === 'text') {
       if (
         groupStart >= 0 &&
-        !canContinueKeepAllTextRun(segmentation.texts[i - 1]!, profile.breakKeepAllAfterPunctuation)
+        !canContinueKeepAllTextRun(segmentation.texts[i - 1]!, breakAfterPunctuation)
       ) {
         flushGroup(i)
       }
@@ -1303,9 +1307,10 @@ export function analyzeText(
       starts: [],
     }
   }
+  const mergedSegmentation = buildMergedSegmentation(normalized, profile, whiteSpaceProfile)
   const segmentation = wordBreak === 'keep-all'
-    ? mergeKeepAllTextSegments(buildMergedSegmentation(normalized, profile, whiteSpaceProfile), profile)
-    : buildMergedSegmentation(normalized, profile, whiteSpaceProfile)
+    ? mergeKeepAllTextSegments(normalized, mergedSegmentation, profile.breakKeepAllAfterPunctuation)
+    : mergedSegmentation
   return {
     normalized,
     chunks: compileAnalysisChunks(segmentation, whiteSpaceProfile),

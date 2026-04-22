@@ -282,6 +282,7 @@ function buildBaseCjkUnits(
 }
 
 function mergeKeepAllTextUnits(
+  segText: string,
   units: MeasuredTextUnit[],
   breakAfterPunctuation: boolean,
 ): MeasuredTextUnit[] {
@@ -292,12 +293,12 @@ function mergeKeepAllTextUnits(
   let groupContainsCJK = false
 
   function pushMergedUnit(start: number, end: number): void {
-    const textParts: string[] = []
-    for (let i = start; i < end; i++) textParts.push(units[i]!.text)
+    const sourceStart = units[start]!.start
+    const sourceEnd = end < units.length ? units[end]!.start : segText.length
 
     merged.push({
-      text: textParts.join(''),
-      start: units[start]!.start,
+      text: segText.slice(sourceStart, sourceEnd),
+      start: sourceStart,
     })
   }
 
@@ -528,7 +529,7 @@ function measureAnalysis(
     if (segKind === 'text' && segMetrics.containsCJK) {
       const baseUnits = buildBaseCjkUnits(segText, engineProfile)
       const measuredUnits = wordBreak === 'keep-all'
-        ? mergeKeepAllTextUnits(baseUnits, engineProfile.breakKeepAllAfterPunctuation)
+        ? mergeKeepAllTextUnits(segText, baseUnits, engineProfile.breakKeepAllAfterPunctuation)
         : baseUnits
 
       for (let i = 0; i < measuredUnits.length; i++) {
